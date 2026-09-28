@@ -20,7 +20,20 @@ router.post('/twiml', Twilio.webhook({ protocol: 'https' }, authToken), (req, re
   twimlHandler(
     req,
     res,
-    componentUrl
+    componentUrl,
+    {
+      callerLabel: 'caller',
+      // The callee of an emergency call is the agent the call is escalated to,
+      // such as on-site security.
+      calleeLabel: 'agent',
+      // The caller, the agent, the emergency provider, and room for one more
+      // participant such as a supervisor.
+      maxParticipants: 4,
+      // Keep the agent and the emergency provider connected when the caller
+      // drops off the call.
+      endConferenceOnExit: false,
+      statusCallbackEvent: 'start, end, join, leave, mute, hold',
+    }
   )
 );
 
@@ -30,7 +43,18 @@ router.post('/conference-events', Twilio.webhook({ protocol: 'https' }, authToke
   conferenceEventsHandler(
     req,
     res,
-    componentUrl
+    componentUrl,
+    {
+      // Sent to the client legs so the softphone can show who is on the call.
+      statusCallbackEvents: [
+        'participant-join',
+        'participant-mute',
+        'participant-unmute',
+        'participant-hold',
+        'participant-unhold',
+        'participant-leave',
+      ],
+    }
   )
 );
 

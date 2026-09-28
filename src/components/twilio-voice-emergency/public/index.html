@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>Twilio Voice Emergency Conference</title>
+    <style>
+      /* Twilio Paste palette
+         https://paste.twilio.design/tokens */
+      :root {
+        --twilio-red: #f22f46;
+        --twilio-navy: #121c2d;
+        --blue-60: #0263e0;
+        --gray-10: #f4f4f6;
+        --gray-20: #e1e3ea;
+        --gray-60: #606b85;
+      }
+      body {
+        font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+        background: var(--gray-10);
+        color: var(--twilio-navy);
+        margin: 0;
+        padding: 36px 16px 72px;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+      }
+      header {
+        background: var(--twilio-navy);
+        color: #fff;
+        border-radius: 12px;
+        padding: 22px 24px;
+        margin-bottom: 14px;
+        border-top: 4px solid var(--twilio-red);
+        box-shadow: 0 6px 20px rgba(18, 28, 45, 0.16);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .brand span {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #aeb2c1;
+      }
+      h1 {
+        font-size: 21px;
+        margin: 0 0 6px 0;
+        letter-spacing: -0.01em;
+      }
+      .lede {
+        color: #cacdd8;
+        font-size: 14px;
+        margin: 0;
+        line-height: 1.5;
+      }
+      .note {
+        background: #fef8e1;
+        border: 1px solid #f2d48a;
+        border-left: 4px solid #e8a33d;
+        border-radius: 8px;
+        padding: 13px 16px;
+        font-size: 13px;
+        line-height: 1.6;
+        margin-bottom: 14px;
+      }
+      .note code {
+        background: #f9ecc2;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      twilio-voice-dialer {
+        display: block;
+        background: #fff;
+        border: 1px solid var(--gray-20);
+        border-radius: 8px;
+        padding: 16px 18px;
+        box-shadow: 0 1px 2px rgba(18, 28, 45, 0.05);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="brand">
+          <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+            <circle cx="16" cy="16" r="16" fill="#f22f46" />
+            <circle cx="11" cy="11" r="3.1" fill="#fff" />
+            <circle cx="21" cy="11" r="3.1" fill="#fff" />
+            <circle cx="11" cy="21" r="3.1" fill="#fff" />
+            <circle cx="21" cy="21" r="3.1" fill="#fff" />
+          </svg>
+          <span>Twilio Voice &middot; Reference component</span>
+        </div>
+        <h1>🚨 Emergency Conference</h1>
+        <p class="lede">
+          A softphone call to 911 or 933 that carries the caller's location to the
+          emergency provider, with a security agent on the same conference.
+        </p>
+      </header>
+
+      <p class="note">
+        ⚠️ <b>Register first</b>, then press <b>Call</b>. 933 only connects when
+        <code>CALLER_ID</code> has a registered emergency address — otherwise the
+        provider leg is rejected and the error shows up in the server console.
+      </p>
+
+      <twilio-voice-dialer recipient register>
+        <twilio-voice-emergency></twilio-voice-emergency>
+      </twilio-voice-dialer>
+    </main>
+
+    <script src="/twilio.js"></script>
+    <script src="/twilio-voice-dialer/twilio-voice-dialer.js"></script>
+    <script src="twilio-voice-emergency.js"></script>
+    <script src="index.js"></script>
+  </body>
+</html>

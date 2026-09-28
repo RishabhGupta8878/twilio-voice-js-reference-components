@@ -1,8 +1,12 @@
 import crypto from 'crypto';
 import Twilio from 'twilio';
 import config from '../config.js';
-import { isPhoneNumber } from './utils.js'; 
-import { Threads } from 'openai/resources/beta.js';
+import { isPhoneNumber } from './utils.js';
+import {
+  appendEmergencyParams,
+  extractEmergencyParams,
+  isEmergencyNumber,
+} from './emergency.js';
 
 const AccessToken = Twilio.jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
@@ -41,13 +45,6 @@ export const tokenHandler = (req, res) => {
  * Handler for the TwiML App Webhook, set in the User's Twilio Console.
  */
 export const twimlHandler = (req, res, componentUrl, options = {}) => {
-  console.log('=== TwiML Handler Called ===');
-  console.log('Request Method:', req.method);
-  console.log('Request URL:', req.url);
-  console.log('Request Body:', JSON.stringify(req.body, null, 2));
-  console.log('Request Query:', JSON.stringify(req.query, null, 2));
-  console.log('Request Headers:', JSON.stringify(req.headers, null, 2)); 
-
   const {
     calleeStatusCallbackEvent = [],
     calleeLabel = 'callee',
@@ -59,69 +56,37 @@ export const twimlHandler = (req, res, componentUrl, options = {}) => {
   const twiml = new VoiceResponse();
   const dial = twiml.dial();
 
-  // Extract emergency parameters from request body
-  const emergencyParams = {
-    emergencyCallerPosition: req.body.emergencyCallerPosition || req.query.emergencyCallerPosition,
-    emergencyCallerLocation: req.body.emergencyCallerLocation || req.query.emergencyCallerLocation,
-    emergencyName: req.body.emergencyName || req.query.emergencyName,
-    emergencyAddress: req.body.emergencyAddress || req.query.emergencyAddress,
-    emergencyZipCode: req.body.emergencyZipCode || req.query.emergencyZipCode,
-    emergencyCity: req.body.emergencyCity || req.query.emergencyCity,
-    emergencyState: req.body.emergencyState || req.query.emergencyState,
-    emergencyCountry: req.body.emergencyCountry || req.query.emergencyCountry,
-  };
-
-  // Log emergency parameters for monitoring/alerting
-  if (emergencyParams.emergencyCallerPosition) {
-    console.log('Emergency call initiated:', emergencyParams);
-  }
+  // Location metadata sent by the softphone with device.connect({ params }).
+  const emergencyParams = extractEmergencyParams(req);
+  // The number the softphone dialed. For the emergency use case this is the
+  // emergency provider, such as 933 or 911.
+  const dialedNumber = req.body.To;
+  const isEmergencyCall = isEmergencyNumber(dialedNumber);
 
   // Generates 1:1 conference
   const roomName = `conference-${crypto.randomUUID()}`;
-  // Extract recipient from custom params (passed via device.connect({params: {recipient}}))
-  console.log('🔍 Extracting recipient:');
-  console.log('  ALL req.body keys:', Object.keys(req.body));
-  console.log('  ALL req.body values:', req.body);
-  console.log('  req.body.recipient:', req.body.recipient);
-  console.log('  req.query.recipient:', req.query.recipient);
-  console.log('  req.body.To:', req.body.To);
-  console.log('  defaultIdentity:', defaultIdentity);
 
-  // Custom params from device.connect are sent directly in req.body
-  // Check multiple possible field names: recipient (regular calls), Agent (emergency calls), or To
-  let recipient = req.body.recipient || req.body.Agent || req.query.recipient || defaultIdentity;
-  console.log('  FINAL recipient (before formatting):', recipient);
+  // The callee is sent as `recipient` by the dialer, and as `Agent` by the
+  // emergency softphone, where the dialed number is the emergency provider.
+  let recipient =
+    req.body.recipient || req.body.Agent || req.query.recipient || defaultIdentity;
   recipient = isPhoneNumber(recipient) ? recipient : 'client:' + recipient;
-  console.log('  FINAL recipient (after formatting):', recipient);
 
-  // Build statusCallback URL with emergency parameters
-  const statusCallbackUrl = new URL(`https://${callbackBaseUrl}/${componentUrl}/conference-events`);
-  console.log("Printing Emergency details:", emergencyParams);
+  // Forward the emergency metadata to the conference statusCallback so that
+  // every conference event can be logged or alerted on with the caller's
+  // location.
+  const statusCallbackUrl = appendEmergencyParams(
+    new URL(`https://${callbackBaseUrl}/${componentUrl}/conference-events`),
+    emergencyParams
+  );
 
-  if (emergencyParams.emergencyCallerPosition) {
-    statusCallbackUrl.searchParams.append('emergencyCallerPosition', emergencyParams.emergencyCallerPosition);
-  }
-  if (emergencyParams.emergencyCallerLocation) {
-    statusCallbackUrl.searchParams.append('emergencyCallerLocation', emergencyParams.emergencyCallerLocation);
-  }
-  if (emergencyParams.emergencyName) {
-    statusCallbackUrl.searchParams.append('emergencyName', emergencyParams.emergencyName);
-  }
-  if (emergencyParams.emergencyAddress) {
-    statusCallbackUrl.searchParams.append('emergencyAddress', emergencyParams.emergencyAddress);
-  }
-  if (emergencyParams.emergencyZipCode) {
-    statusCallbackUrl.searchParams.append('emergencyZipCode', emergencyParams.emergencyZipCode);
-  }
-  if (emergencyParams.emergencyCity) {
-    statusCallbackUrl.searchParams.append('emergencyCity', emergencyParams.emergencyCity);
-  }
-  if (emergencyParams.emergencyState) {
-    statusCallbackUrl.searchParams.append('emergencyState', emergencyParams.emergencyState);
-  }
-  if (emergencyParams.emergencyCountry) {
-    statusCallbackUrl.searchParams.append('emergencyCountry', emergencyParams.emergencyCountry);
-  }
+  console.log(`[${componentUrl}] twiml`, {
+    conference: roomName,
+    from: req.body.From,
+    to: dialedNumber,
+    recipient,
+    ...(isEmergencyCall ? { emergency: emergencyParams } : {}),
+  });
 
   // The caller creates the conference
   dial.conference(
@@ -141,26 +106,15 @@ export const twimlHandler = (req, res, componentUrl, options = {}) => {
     roomName
   );
 
-  // Add the callee to the conference
-  console.log('=== Conference Participant Debug ===');
-  console.log('Room Name:', roomName);
-  console.log('Recipient (raw):', req.query.recipient || req.body.recipient || defaultIdentity);
-  console.log('Recipient (formatted):', recipient);
-  console.log('Caller ID (from):', callerId);
-  console.log('Is Phone Number:', isPhoneNumber(recipient));
-  console.log('Participant Label:', `${isPhoneNumber(recipient) ? 'number' : 'client'}-${calleeLabel}`);
-  console.log('Status Callback URL:', calleeStatusCallbackEvent.length > 0 ? `https://${callbackBaseUrl}/${componentUrl}/call-events` : 'NONE');
-  console.log('Status Callback Events:', calleeStatusCallbackEvent);
-  console.log('=====================================');
- 
-  // Add the Agent (security personnel) to the conference
+  // Add the callee to the conference. For an emergency call this is the agent
+  // the call is escalated to, such as on-site security.
   client.conferences(roomName).participants.create({
     beep: 'false',
     endConferenceOnExit: false,
     startConferenceOnEnter: true,
     from: callerId,
     // Label to identify this participant
-    label: `${isPhoneNumber(recipient) ? 'number' : 'client'}-agent`,
+    label: `${isPhoneNumber(recipient) ? 'number' : 'client'}-${calleeLabel}`,
     // Callee's progress/status
     // https://www.twilio.com/docs/voice/api/conference-participant-resource#request-body-parameters
     statusCallback:
@@ -170,61 +124,36 @@ export const twimlHandler = (req, res, componentUrl, options = {}) => {
     statusCallbackEvent: calleeStatusCallbackEvent,
     to: recipient,
   })
-  .then((participant) => {
-    console.log('✅ Agent participant created successfully:', {
-      callSid: participant.callSid,
-      label: participant.label,
-      status: participant.status,
-      to: recipient,
-    });
-  })
   .catch((error) => {
-    console.error('❌ Failed to create agent participant:', {
-      message: error.message,
+    console.error(`[${componentUrl}] unable to add ${calleeLabel} to the conference:`, {
       code: error.code,
+      message: error.message,
       moreInfo: error.moreInfo,
-      details: error.details,
+      to: recipient,
     });
   });
 
-
-
-  // Add the Emergency provider (933/911) to the conference
-  const emergencyNumber = req.body.To;
-  if (emergencyNumber && (emergencyNumber.includes('933') || emergencyNumber.includes('911'))) {
-    console.log('📞 Adding emergency provider to conference:', emergencyNumber);
+  // Add the emergency provider (933/911) to the conference, along with the
+  // caller's location metadata.
+  // https://www.twilio.com/docs/voice/api/conference-participant-resource
+  if (isEmergencyCall) {
     client.conferences(roomName).participants.create({
       beep: 'false',
       endConferenceOnExit: false,
       startConferenceOnEnter: true,
       from: callerId,
       label: 'emergency-provider',
-      to: emergencyNumber,
-      // add emergencyParams here 
-      // emergencyCallerPosition: emergencyParams.emergencyCallerPosition,
-      // emergencyCallerLocation: emergencyParams.emergencyCallerLocation,
-      // emergencyName: emergencyParams.emergencyName,
-      // emergencyAddress: emergencyParams.emergencyAddress,
-      // emergencyZipCode: emergencyParams.emergencyZipCode,
-      // emergencyCity: emergencyParams.emergencyCity,
-      // emergencyState: emergencyParams.emergencyState,
-      // emergencyCountry: emergencyParams.emergencyCountry,
-    })
-    .then((participant) => {
-      console.log('✅ Emergency provider participant created successfully:', {
-        callSid: participant.callSid,
-        label: participant.label,
-        status: participant.status,
-        to: emergencyNumber,
-      });
+      to: dialedNumber,
+      // Emergency location metadata, delivered to the emergency provider.
+      // Requires the twilio helper library v6 or later.
+      ...emergencyParams,
     })
     .catch((error) => {
-      console.error('❌ Failed to create emergency provider participant:', {
-        message: error.message,
+      console.error(`[${componentUrl}] unable to add the emergency provider to the conference:`, {
         code: error.code,
+        message: error.message,
         moreInfo: error.moreInfo,
-        details: error.details,
-        emergencyNumber: emergencyNumber,
+        to: dialedNumber,
       });
     });
   }
@@ -248,22 +177,14 @@ export const conferenceEventsHandler = async (req, res, componentUrl, options = 
     statusCallbackEvents = [],
   } = options;
 
-  // Extract emergency parameters from query string if present
-  const emergencyParams = {
-    emergencyCallerPosition: req.query.emergencyCallerPosition,
-    emergencyCallerLocation: req.query.emergencyCallerLocation,
-    emergencyName: req.query.emergencyName,
-    emergencyAddress: req.query.emergencyAddress,
-    emergencyZipCode: req.query.emergencyZipCode,
-    emergencyCity: req.query.emergencyCity,
-    emergencyState: req.query.emergencyState,
-    emergencyCountry: req.query.emergencyCountry,
-  };
+  // The emergency metadata is carried on the statusCallback URL, see twimlHandler.
+  const emergencyParams = extractEmergencyParams(req);
 
-  // Log emergency conference events
-  if (emergencyParams.emergencyCallerPosition) {
-    console.log(`Emergency conference event: ${StatusCallbackEvent}`, {
+  if (Object.keys(emergencyParams).length > 0) {
+    console.log(`[${componentUrl}] emergency conference event`, {
       conferenceSid: ConferenceSid,
+      participantLabel: ParticipantLabel,
+      statusCallbackEvent: StatusCallbackEvent,
       ...emergencyParams,
     });
   }
@@ -274,6 +195,7 @@ export const conferenceEventsHandler = async (req, res, componentUrl, options = 
       shouldSendMessage = false;
       break;
     case 'twilio-voice-basic-call-control':
+    case 'twilio-voice-emergency':
       shouldSendMessage = statusCallbackEvents.includes(StatusCallbackEvent);
       break;
     case 'twilio-voice-monitoring':
